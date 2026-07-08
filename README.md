@@ -136,15 +136,3 @@ In Algolia logs:
 - Some 429 rows may not expose `userToken` or analytics tags in the exported logs.
 - Grouping logs by API key can help show the sequence of successful requests followed by 429s.
 
-## Security notes
-
-Do not commit `.env`.
-
-Only commit `.env.example` with placeholder values.
-
-Make sure `.gitignore` includes:
-
-```text
-.env
-node_modules/
-```
