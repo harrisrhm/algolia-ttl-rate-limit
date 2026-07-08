@@ -14,12 +14,14 @@ app.use(express.static("public"));
 const {
   ALGOLIA_APP_ID,
   ALGOLIA_PARENT_SEARCH_KEY,
-  ALGOLIA_INDEX_NAME = "demo_products",
+  ALGOLIA_INDEX_NAME,
   PORT = 3000,
 } = process.env;
 
-if (!ALGOLIA_APP_ID || !ALGOLIA_PARENT_SEARCH_KEY) {
-  throw new Error("Missing ALGOLIA_APP_ID or ALGOLIA_PARENT_SEARCH_KEY in .env");
+if (!ALGOLIA_APP_ID || !ALGOLIA_PARENT_SEARCH_KEY || !ALGOLIA_INDEX_NAME) {
+  throw new Error(
+    "Missing ALGOLIA_APP_ID, ALGOLIA_PARENT_SEARCH_KEY, or ALGOLIA_INDEX_NAME in .env"
+  );
 }
 
 const searchClient = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_PARENT_SEARCH_KEY);
