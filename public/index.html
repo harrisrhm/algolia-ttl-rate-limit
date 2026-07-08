@@ -1,0 +1,786 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Algolia TTL Key + 429 Demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 1400px;
+        margin: 32px auto;
+        padding: 0 24px;
+        line-height: 1.5;
+        overflow-x: hidden;
+      }
+
+      button {
+        margin-right: 8px;
+        margin-bottom: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+
+      .controls {
+        margin-bottom: 20px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 20px;
+        align-items: start;
+      }
+
+      .card {
+        min-width: 0;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 16px;
+        overflow: hidden;
+      }
+
+      .card h2 {
+        margin-top: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .badge {
+        flex-shrink: 0;
+        font-size: 14px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #eee;
+      }
+
+      .running {
+        background: #dbeafe;
+      }
+
+      .ok {
+        background: #dcfce7;
+      }
+
+      .blocked {
+        background: #fee2e2;
+      }
+
+      .identity {
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          monospace;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .identity div {
+        margin-bottom: 4px;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .metric {
+        min-width: 0;
+        background: #f7f7f7;
+        padding: 10px;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .metric span {
+        display: block;
+        font-size: 13px;
+      }
+
+      .metric strong {
+        display: block;
+        font-size: 22px;
+        overflow-wrap: anywhere;
+      }
+
+      pre {
+        background: #111;
+        color: #0f0;
+        padding: 16px;
+        height: 420px;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        border-radius: 8px;
+        font-size: 13px;
+      }
+
+      @media (max-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .metrics {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Algolia short-lived key + 429 demo</h1>
+
+    <p>
+     <p>
+  This demo runs two simulated users. The real user receives a short-lived
+  secured API key and searches normally. The bot also receives one short-lived
+  secured API key, but the backend acts like an application, CDN, or WAF layer:
+  it detects the bot fingerprint and returns Backend 429s before those requests
+  are allowed to reach Algolia.
+</p>
+    </p>
+
+    <p>
+      After the Backend 429 phase, the demo intentionally lets the remaining bot
+  traffic continue to Algolia using the same short-lived secured API key. This
+  shows Algolia acting as the second layer of protection: once the secured key
+  exceeds the parent key's low API-call limit, Algolia returns Algolia 429s.
+    </p>
+
+    <div class="controls">
+      <button id="runBoth">Run both users</button>
+      <button id="normal">Run real user only</button>
+      <button id="bot">Run bot only</button>
+      <button id="reset">Reset demo state</button>
+      <button id="clear">Clear logs only</button>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <h2>
+          Real user
+          <span id="normalStatus" class="badge">idle</span>
+        </h2>
+
+        <div class="identity">
+          <div><strong>Client type:</strong> <span id="normalType">real_user</span></div>
+          <div><strong>Demo IP:</strong> <span id="normalIp">203.0.113.10</span></div>
+          <div><strong>User-Agent:</strong> <span id="normalUa">desktop</span></div>
+          <div><strong>Fingerprint:</strong> <span id="normalFingerprint">not issued yet</span></div>
+          <div><strong>Key type:</strong> <span id="normalKeyType">not issued yet</span></div>
+          <div><strong>API key:</strong> <span id="normalApiKey">not issued yet</span></div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <span>200s</span>
+            <strong id="normalOk">0</strong>
+          </div>
+          <div class="metric">
+            <span>Backend 429s</span>
+            <strong id="normalBackend429">0</strong>
+          </div>
+          <div class="metric">
+            <span>Algolia 429s</span>
+            <strong id="normalAlgolia429">0</strong>
+          </div>
+          <div class="metric">
+            <span>Total 429s</span>
+            <strong id="normal429">0</strong>
+          </div>
+          <div class="metric">
+            <span>Key TTL</span>
+            <strong id="normalTtl">-</strong>
+          </div>
+          <div class="metric">
+            <span>State</span>
+            <strong id="normalState">idle</strong>
+          </div>
+        </div>
+
+        <pre id="normalLog"></pre>
+      </section>
+
+      <section class="card">
+        <h2>
+          Bot user
+          <span id="botStatus" class="badge">idle</span>
+        </h2>
+
+        <div class="identity">
+          <div><strong>Client type:</strong> <span id="botType">bot</span></div>
+          <div><strong>Demo IP:</strong> <span id="botIp">123.123.123.123</span></div>
+          <div><strong>User-Agent:</strong> <span id="botUa">I_am_bot</span></div>
+          <div><strong>Fingerprint:</strong> <span id="botFingerprint">not issued yet</span></div>
+          <div><strong>Key type:</strong> <span id="botKeyType">not issued yet</span></div>
+          <div><strong>API key:</strong> <span id="botApiKey">not issued yet</span></div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <span>200s</span>
+            <strong id="botOk">0</strong>
+          </div>
+          <div class="metric">
+            <span>Backend 429s</span>
+            <strong id="botBackend429">0</strong>
+          </div>
+          <div class="metric">
+            <span>Algolia 429s</span>
+            <strong id="botAlgolia429">0</strong>
+          </div>
+          <div class="metric">
+            <span>Total 429s</span>
+            <strong id="bot429">0</strong>
+          </div>
+          <div class="metric">
+            <span>Key TTL</span>
+            <strong id="botTtl">-</strong>
+          </div>
+          <div class="metric">
+            <span>State</span>
+            <strong id="botState">idle</strong>
+          </div>
+        </div>
+
+        <pre id="botLog"></pre>
+      </section>
+    </div>
+
+    <script type="module">
+      import { algoliasearch } from "https://cdn.jsdelivr.net/npm/algoliasearch@5/+esm";
+
+      const clients = {
+        normal: {
+          label: "Real user",
+          type: "real_user",
+          ip: "203.0.113.10",
+          userAgent: "desktop",
+          ok: 0,
+          backend429: 0,
+          algolia429: 0,
+          tooMany: 0,
+          stopped: false,
+          max429s: 999,
+        },
+        bot: {
+          label: "Bot user",
+          type: "bot",
+          ip: "123.123.123.123",
+          userAgent: "I_am_bot",
+          ok: 0,
+          backend429: 0,
+          algolia429: 0,
+          tooMany: 0,
+          stopped: false,
+          max429s: 10,
+        },
+      };
+
+      let activeRunId = 0;
+
+      function els(kind) {
+        return {
+          log: document.getElementById(`${kind}Log`),
+          status: document.getElementById(`${kind}Status`),
+          ok: document.getElementById(`${kind}Ok`),
+          backend429: document.getElementById(`${kind}Backend429`),
+          algolia429: document.getElementById(`${kind}Algolia429`),
+          tooMany: document.getElementById(`${kind}429`),
+          state: document.getElementById(`${kind}State`),
+          ttl: document.getElementById(`${kind}Ttl`),
+          type: document.getElementById(`${kind}Type`),
+          ip: document.getElementById(`${kind}Ip`),
+          ua: document.getElementById(`${kind}Ua`),
+          fingerprint: document.getElementById(`${kind}Fingerprint`),
+          keyType: document.getElementById(`${kind}KeyType`),
+          apiKey: document.getElementById(`${kind}ApiKey`),
+        };
+      }
+
+      function cleanTag(value) {
+        return String(value)
+          .replaceAll(".", "_")
+          .replaceAll(":", "_")
+          .replaceAll(" ", "_")
+          .replaceAll("/", "_")
+          .replaceAll("\\", "_");
+      }
+
+      function analyticsTagsForIdentity(prefix, identity) {
+        return [
+          prefix,
+          "secured_api_key",
+          identity.type,
+          `demo_ip_${cleanTag(identity.ip)}`,
+          `ua_${cleanTag(identity.userAgent)}`,
+          `fingerprint_${cleanTag(identity.fingerprint)}`,
+        ];
+      }
+
+      function headersFor(kind) {
+        return {
+          "x-demo-ip": clients[kind].ip,
+          "x-demo-user-agent": clients[kind].userAgent,
+        };
+      }
+
+      function maskApiKey(apiKey) {
+        if (!apiKey || apiKey.length < 16) {
+          return "not available";
+        }
+
+        return `${apiKey.slice(0, 8)}...${apiKey.slice(-6)}`;
+      }
+
+      function setStatus(kind, label, className) {
+        const e = els(kind);
+
+        e.status.textContent = label;
+        e.status.className = `badge ${className || ""}`;
+        e.state.textContent = label;
+      }
+
+      function updateMetrics(kind) {
+        const e = els(kind);
+
+        clients[kind].tooMany =
+          clients[kind].backend429 + clients[kind].algolia429;
+
+        e.ok.textContent = clients[kind].ok;
+        e.backend429.textContent = clients[kind].backend429;
+        e.algolia429.textContent = clients[kind].algolia429;
+        e.tooMany.textContent = clients[kind].tooMany;
+      }
+
+      function updateIdentity(kind, identity) {
+        const e = els(kind);
+
+        e.type.textContent = identity.type;
+        e.ip.textContent = identity.ip;
+        e.ua.textContent = identity.userAgent;
+        e.fingerprint.textContent = identity.fingerprint;
+      }
+
+      function updateTtl(kind, expiresAt) {
+        const e = els(kind);
+        const ttl = Math.max(expiresAt - Math.floor(Date.now() / 1000), 0);
+
+        e.ttl.textContent = `${ttl}s`;
+      }
+
+      function updateKeyInfo(kind, body) {
+        const e = els(kind);
+
+        if (body.keyType) {
+          e.keyType.textContent = body.keyType;
+        }
+
+        if (body.apiKeyMasked) {
+          e.apiKey.textContent = body.apiKeyMasked;
+        } else if (body.apiKey) {
+          e.apiKey.textContent = maskApiKey(body.apiKey);
+        }
+
+        if (body.expiresAt) {
+          updateTtl(kind, body.expiresAt);
+        }
+      }
+
+      function log(kind, message, data) {
+        const e = els(kind);
+
+        const line = data
+          ? `${new Date().toLocaleTimeString()} ${message} ${JSON.stringify(data)}`
+          : `${new Date().toLocaleTimeString()} ${message}`;
+
+        e.log.textContent += line + "\n";
+        e.log.scrollTop = e.log.scrollHeight;
+      }
+
+      function clearAll() {
+        activeRunId += 1;
+
+        for (const kind of ["normal", "bot"]) {
+          clients[kind].ok = 0;
+          clients[kind].backend429 = 0;
+          clients[kind].algolia429 = 0;
+          clients[kind].tooMany = 0;
+          clients[kind].stopped = false;
+
+          const e = els(kind);
+          e.log.textContent = "";
+          e.fingerprint.textContent = "not issued yet";
+          e.keyType.textContent = "not issued yet";
+          e.apiKey.textContent = "not issued yet";
+          e.ttl.textContent = "-";
+
+          updateMetrics(kind);
+          setStatus(kind, "idle", "");
+        }
+      }
+
+      async function getKey(kind) {
+        const response = await fetch("/algolia-key", {
+          headers: headersFor(kind),
+        });
+
+        const body = await response.json();
+
+        if (!response.ok) {
+          throw new Error(`${response.status}: ${JSON.stringify(body)}`);
+        }
+
+        return body;
+      }
+
+      async function handle429(kind, source, body) {
+        if (source === "BACKEND") {
+          clients[kind].backend429 += 1;
+        } else if (source === "ALGOLIA") {
+          clients[kind].algolia429 += 1;
+        }
+
+        updateMetrics(kind);
+
+        log(kind, `${source} 429 received`, {
+          backend429s: clients[kind].backend429,
+          algolia429s: clients[kind].algolia429,
+          total429s: clients[kind].tooMany,
+          max429s: clients[kind].max429s,
+          reason: body?.reason || body?.error || "429 received",
+          retryAfterSeconds: body?.retryAfterSeconds,
+        });
+
+        setStatus(kind, `${source.toLowerCase()} 429 retrying`, "blocked");
+
+        if (clients[kind].tooMany >= clients[kind].max429s) {
+          clients[kind].stopped = true;
+          setStatus(kind, "stopped after repeated 429s", "blocked");
+
+          log(kind, "BOT STOPPED after repeated 429s", {
+            backend429s: clients[kind].backend429,
+            algolia429s: clients[kind].algolia429,
+            total429s: clients[kind].tooMany,
+          });
+
+          return true;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return false;
+      }
+
+      async function runSearch({ kind, iterations, delayMs }) {
+        const myRunId = activeRunId;
+
+        setStatus(kind, "getting key", "running");
+
+        let keyPayload;
+
+        try {
+          keyPayload = await getKey(kind);
+        } catch (err) {
+          log(kind, "Could not get key", { message: err.message });
+          setStatus(kind, "blocked", "blocked");
+          return;
+        }
+
+        updateIdentity(kind, keyPayload.identity);
+        updateTtl(kind, keyPayload.expiresAt);
+
+        els(kind).keyType.textContent = keyPayload.keyType || "unknown";
+        els(kind).apiKey.textContent = maskApiKey(keyPayload.apiKey);
+
+        log(kind, "Issued secured API key", {
+          keyType: keyPayload.keyType,
+          type: keyPayload.identity.type,
+          ip: keyPayload.identity.ip,
+          userAgent: keyPayload.identity.userAgent,
+          fingerprint: keyPayload.identity.fingerprint,
+          apiKey: maskApiKey(keyPayload.apiKey),
+          parentKey: keyPayload.parentKeyMasked,
+          expiresAt: keyPayload.expiresAt,
+        });
+
+        setStatus(kind, "running", "running");
+
+        const client = algoliasearch(keyPayload.appId, keyPayload.apiKey);
+        const analyticsTags = analyticsTagsForIdentity(
+          "normal_frontend_demo",
+          keyPayload.identity
+        );
+
+        for (let i = 0; i < iterations; i++) {
+          if (clients[kind].stopped || myRunId !== activeRunId) {
+            log(kind, "Stopped because demo was reset or a new run started");
+            return;
+          }
+
+          updateTtl(kind, keyPayload.expiresAt);
+
+          try {
+            const gateResponse = await fetch("/record-search", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                ...headersFor(kind),
+              },
+            });
+
+            const gateBody = await gateResponse.json();
+
+            if (gateResponse.status === 429) {
+              const shouldStop = await handle429(kind, "BACKEND", gateBody);
+
+              if (shouldStop) {
+                return;
+              }
+
+              continue;
+            }
+
+            log(kind, "Backend allowed request", {
+              requestCount: gateBody.requestCount,
+              demoLimit: gateBody.demoLimit,
+            });
+
+            const response = await client.search([
+              {
+                indexName: keyPayload.indexName,
+                params: {
+                  query: "iphone",
+                  hitsPerPage: 5,
+                  userToken: keyPayload.identity.fingerprint,
+                  analyticsTags,
+                },
+              },
+            ]);
+
+            clients[kind].ok += 1;
+            updateMetrics(kind);
+
+            log(kind, `200 allowed search ${i + 1}/${iterations}`, {
+              userAgent: keyPayload.identity.userAgent,
+              fingerprint: keyPayload.identity.fingerprint,
+              analyticsTags,
+              hits: response.results[0].hits.length,
+            });
+          } catch (err) {
+            const status = err.status || err.statusCode;
+
+            log(kind, "Search error observed", {
+              status,
+              message: err.message,
+            });
+
+            if (Number(status) === 429 || String(err.message).includes("429")) {
+              const shouldStop = await handle429(kind, "ALGOLIA", {
+                reason: "Algolia returned 429",
+                retryAfterSeconds: null,
+              });
+
+              if (shouldStop) {
+                return;
+              }
+
+              continue;
+            }
+
+            setStatus(kind, "error", "blocked");
+            return;
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+          if (myRunId !== activeRunId) {
+            log(kind, "Stopped after reset");
+            return;
+          }
+        }
+
+        if (!clients[kind].stopped) {
+          setStatus(kind, "still allowed", "ok");
+          log(kind, "Completed without being throttled");
+        }
+      }
+
+      async function runStagedBotDemo() {
+        setStatus("bot", "staged secured-key bot running", "running");
+
+        log("bot", "Starting staged secured-key bot demo", {
+          story:
+            "Bot 123.123.123.123 receives one short-lived secured API key. Backend returns 429s first, then allows remaining bot traffic through to Algolia with the same secured key so Algolia can enforce its own 429s.",
+          botIp: clients.bot.ip,
+          userAgent: clients.bot.userAgent,
+        });
+
+        for (let i = 1; i <= 50; i++) {
+          try {
+            const response = await fetch("/demo/staged-bot-search", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                ...headersFor("bot"),
+              },
+              body: JSON.stringify({
+                query: "iphone",
+              }),
+            });
+
+            const body = await response.json();
+
+            if (body.identity) {
+              updateIdentity("bot", body.identity);
+            }
+
+            updateKeyInfo("bot", body);
+
+            if (response.status === 429 && body.source === "BACKEND") {
+              clients.bot.backend429 += 1;
+              updateMetrics("bot");
+
+              log("bot", "BACKEND 429: backend/CDN/WAF throttle", {
+                attempt: body.attempt,
+                phase: body.phase,
+                keyType: body.keyType,
+                securedKey: body.apiKeyMasked,
+                reason: body.reason,
+                note:
+                  "For this staged demo, bot traffic continues after this backend 429 phase.",
+              });
+
+              setStatus("bot", "backend 429 phase", "blocked");
+
+              await new Promise((resolve) => setTimeout(resolve, 400));
+              continue;
+            }
+
+            if (response.status === 429 && body.source === "ALGOLIA") {
+              clients.bot.algolia429 += 1;
+              updateMetrics("bot");
+
+              log("bot", "ALGOLIA 429: secured API key rate limit reached", {
+                attempt: body.attempt,
+                phase: body.phase,
+                keyType: body.keyType,
+                securedKey: body.apiKeyMasked,
+                parentKey: body.parentKeyMasked,
+                analyticsTags: body.analyticsTags,
+                reason: body.reason,
+                message: body.message,
+              });
+
+              setStatus("bot", "Algolia 429 phase", "blocked");
+
+              if (clients.bot.algolia429 >= clients.bot.max429s) {
+                clients.bot.stopped = true;
+                setStatus("bot", "stopped after Algolia 429s", "blocked");
+
+                log("bot", "BOT STOPPED after staged secured-key demo", {
+                  backend429s: clients.bot.backend429,
+                  algolia429s: clients.bot.algolia429,
+                  total429s: clients.bot.tooMany,
+                });
+
+                return;
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, 400));
+              continue;
+            }
+
+            if (!response.ok) {
+              log("bot", "Unexpected staged demo error", body);
+              setStatus("bot", "error", "blocked");
+              return;
+            }
+
+            clients.bot.ok += 1;
+            updateMetrics("bot");
+
+            log("bot", "ALGOLIA 200: secured API key reached Algolia", {
+              attempt: body.attempt,
+              phase: body.phase,
+              fingerprint: body.identity?.fingerprint,
+              keyType: body.keyType,
+              securedKey: body.apiKeyMasked,
+              parentKey: body.parentKeyMasked,
+              analyticsTags: body.analyticsTags,
+              hits: body.hits,
+            });
+
+            setStatus("bot", "secured key reaching Algolia", "running");
+
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          } catch (err) {
+            log("bot", "Staged secured-key bot demo failed", {
+              message: err.message,
+            });
+
+            setStatus("bot", "error", "blocked");
+            return;
+          }
+        }
+
+        setStatus("bot", "completed", "ok");
+      }
+
+      document.getElementById("normal").addEventListener("click", () => {
+        clearAll();
+
+        runSearch({
+          kind: "normal",
+          iterations: 60,
+          delayMs: 1000,
+        });
+      });
+
+      document.getElementById("bot").addEventListener("click", () => {
+        clearAll();
+
+        runStagedBotDemo();
+      });
+
+      document.getElementById("runBoth").addEventListener("click", () => {
+        clearAll();
+
+        runSearch({
+          kind: "normal",
+          iterations: 60,
+          delayMs: 1000,
+        });
+
+        runStagedBotDemo();
+      });
+
+      document.getElementById("reset").addEventListener("click", async () => {
+        await fetch("/debug/reset", {
+          method: "POST",
+        });
+
+        clearAll();
+
+        log("normal", "Demo state reset. Real user stopped and can run again.");
+        log(
+          "bot",
+          "Demo state reset. Bot stopped, staged counters cleared, and staged secured key cleared."
+        );
+      });
+
+      document.getElementById("clear").addEventListener("click", clearAll);
+    </script>
+  </body>
+</html>
